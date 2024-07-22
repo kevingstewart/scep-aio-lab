@@ -15,7 +15,7 @@ The purpose of this repository is to demonstrate the inner workings of the SCEP 
 ----
 
 ### Self-Contained Testing Environment
-A testing environment is contained within this repository in the form of a Docker Compose file. This ["all-in-one" Docker Compose](https://github.com/kevingstewart/acme-aio-lab/blob/main/acme-aio-internal-compose.yaml) creates the following services needed to build an SCEP testing lab:
+A testing environment is contained within this repository in the form of a Docker Compose file. This ["all-in-one" Docker Compose](https://github.com/kevingstewart/scep-aio-lab/blob/main/scep-aio-internal-compose.yaml) creates the following services needed to build an SCEP testing lab:
 
 - SCEP server (Ubuntu:22.04)
 - SCEP client (Ubuntu:22.04)
