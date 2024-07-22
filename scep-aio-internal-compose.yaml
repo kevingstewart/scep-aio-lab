@@ -1,0 +1,67 @@
+version: '3'
+services:
+  scepserver:
+    container_name: scepserver
+    image: ubuntu:22.04
+    ports:
+      - 8080:8080
+    networks:
+      internal:
+        ipv4_address: 10.10.0.10
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## install updates and required packages
+        apt update
+        apt install wget unzip -y
+
+        ## install scep server binary
+        wget https://github.com/micromdm/scep/releases/download/v2.2.0/scepserver-linux-amd64-v2.2.0.zip
+        unzip scepserver-linux-amd64-v2.2.0.zip
+        mv scepserver-linux-amd64 /usr/sbin/scepserver
+
+        ## make necessary folders
+        mkdir -p /scep/depot
+
+        ## generate new CA cert
+        /usr/sbin/scepserver ca -init -depot /scep/depot
+
+        ## start scepserver on port 8080
+        /usr/sbin/scepserver -depot /scep/depot -port 8080 -challenge=secret -allowrenew 0 -sign-server-attrs
+
+
+  scepclient:
+    container_name: scepclient
+    image: ubuntu:22.04
+    networks:
+      internal:
+        ipv4_address: 10.10.0.20
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## install updates and required packages
+        apt update
+        apt install wget unzip -y
+
+        ## install scep client binary
+        wget https://github.com/micromdm/scep/releases/download/v2.2.0/scepclient-linux-amd64-v2.2.0.zip
+        unzip scepclient-linux-amd64-v2.2.0.zip
+        mv scepclient-linux-amd64 /usr/sbin/scepclient
+
+        ## make necessary folders
+        mkdir -p /scep/client
+
+        ## start a never ending task to keep container running
+        tail -f /dev/null
+
+
+networks:
+  default:
+    driver: bridge
+  internal:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.10.0.0/16
