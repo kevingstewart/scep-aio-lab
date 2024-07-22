@@ -5,6 +5,7 @@ A SCEP all-in-one testing lab
 SCEP (Simple Certificate Enrollment Protocol) is an *automated* certificate renewal protocol that is primarily used in MDM solutions to allow mobile devices to enroll and/or receive renewed certificates. This "simple" protocol exchange is based on a set of HTTP messages. The SCEP protocol is documented here:
 
 - [SCEP RFC 8894](https://datatracker.ietf.org/doc/html/rfc8894)
+- [SCEP MicroMDM client/server project](https://github.com/micromdm/scep)
 - [Cisco SCEP Implementation](https://www.cisco.com/c/en/us/support/docs/security-vpn/public-key-infrastructure-pki/116167-technote-scep-00.html)
 - [SecureW2 SCEP Implementation](https://www.securew2.com/blog/simple-certificate-enrollment-protocol-scep-explained)
 
