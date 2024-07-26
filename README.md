@@ -10,7 +10,10 @@ SCEP (Simple Certificate Enrollment Protocol) is an *automated* certificate rene
 - [SecureW2 SCEP Implementation](https://www.securew2.com/blog/simple-certificate-enrollment-protocol-scep-explained)
 - [Blog: Cracking Open SCEP](https://articles.foletta.org/post/2024-07-01-cracking-open-scep/)
 
-The purpose of this repository is to demonstrate the inner workings of the SCEP protocol, within a fully self-contained, container-based, client-server SCEP testing lab. No external resources are required to operate this lab.
+The purpose of this repository is to demonstrate the inner workings of the SCEP protocol, within a fully self-contained, container-based, client-server SCEP testing lab. No external resources are required to operate this lab. The repository contains:
+
+- A self-contained Docker Compose environment that defines 3 SCEP servers and 2 SCEP clients. There is also a remote SCEP server that can be tested.
+- A set of Wireshark captures for eacg client-server interaction.
 
 <br />
 
@@ -19,15 +22,22 @@ The purpose of this repository is to demonstrate the inner workings of the SCEP 
 ## Self-Contained Testing Environment
 A testing environment is contained within this repository in the form of a Docker Compose file. This ["all-in-one" Docker Compose](https://github.com/kevingstewart/scep-aio-lab/blob/main/scep-aio-internal-compose.yaml) creates the following services needed to build an SCEP testing lab:
 
-- SCEP server (Ubuntu:22.04)
-- SCEP client (Ubuntu:22.04)
+- SCEP servers
+   - Smallstep Step-CA Scep [ref](https://hub.docker.com/r/smallstep/step-ca)
+   - OpenXPKI Scepserver [ref](https://hub.docker.com/r/larskanis/openxpki/)
+   - MicroMDM Scepserver [ref](https://github.com/micromdm/scep/blob/main/README.md)
+- SCEP clients
+   - MicroMDM Scepclient [ref](https://github.com/micromdm/scep/blob/main/README.md)
+   - Certnanny Sscepclient [ref](https://github.com/certnanny/sscep/blob/master/README.md)
 
-The compose file builds two networks - one "internal" used between the two containers, and one "external" for some services to expose ports outside the environment as needed.
+The compose file builds an "internal" network used between the containers:
 
-The environment is configured as such:
-- The entire internal network sits on a 10.10.0.0/16 subnet.
-- The SCEP server listens on 10.10.0.10.
-- The SCEP client listens on 10.10.0.20.
+- The entire internal network sits on a 10.10.0.0/16 subnet
+- The MicroMDM SCEP server listens on 10.10.0.10
+- The OpenXPKI SCEP server listens on 10.10.0.11
+- The Smallstep SCEP server listens on 10.10.0.14
+- The MicroMDM SCEP client listens on 10.10.0.20
+- The Certnanny SSCEP Client listens on 10.10.0.21
 
 <br />
 
@@ -38,20 +48,27 @@ The SCEP all-in-one lab consists of a Docker Compose file that builds all of the
 
 **To test SCEP**:
 
-1. Start the Docker Compose environment.
+1. Start the Docker Compose environment
    ```shell
    docker compose -f scep-aio-internal-compose.yaml up -d
    ```
-2. Tail the SCEP server container log until the logs settles. Many things are happening under the hood. Keep this tail open for the remainder of testing to watch the server-side logs.
+
+2. Tail the SCEP client container log until the logs settles
    ```shell
-   docker logs -f scepserver
+   docker logs -f scepclient
    ```
-3. Shell into the SCEP client container.
+
+3. Shell into the SCEP client container to test 3 different SCEP servers (2 local and 1 remote)
+
+   Note that the MicroMDM SCEP client will perform all of the SCEP negotiations in a single command (i.e., GetCACert, GetCACaps, and PKIOperation).
    ```shell
    docker exec -it scepclient /bin/bash
-   ```
-4. Move to the /scep/client folder in the SCEP client container and issue the following command to generate a new private key, and retrieve a signed certificate from the SCEP server.
-   ```
+
+   ## Change to the /scep folder
+   cd /scep
+
+   ## Test against the local MicroMDM SCEP server
+   mkdir test_micromdm && cd test_micromdm
    scepclient -server-url http://10.10.0.10:8080/scep -challenge=secret -private-key client.key \
    -cn "www.f5labs.local" \
    -dnsname "www.f5labs.local" \
@@ -60,12 +77,71 @@ The SCEP all-in-one lab consists of a Docker Compose file that builds all of the
    -locality "Omaha" \
    -province "NE" \
    -country "US"
+   -debug
+
+   ## Test against the local Smallstep Step-CA SCEP server
+   cd ..
+   mkdir test_smallstep && cd test_smallstep
+   scepclient -server-url http://10.10.0.14:9001/scep/scepca -challenge=secret -private-key client.key \
+   -cn "www.f5labs.local" \
+   -dnsname "www.f5labs.local" \
+   -organization "f5labs.local" \
+   -ou "scep.f5labs.local" \
+   -locality "Omaha" \
+   -province "NE" \
+   -country "US" \
+   -debug
+
+   ## Test against a remote SCEP server (interop.redwax.eu)
+   cd ..
+   mkdir test_redwax && cd test_redwax
+   scepclient -server-url http://interop.redwax.eu/test/simple/scep -challenge=challenge-password -private-key client.key \
+   -cn "www.f5labs.local" \
+   -dnsname "www.f5labs.local" \
+   -organization "f5labs.local" \
+   -ou "scep.f5labs.local" \
+   -locality "Omaha" \
+   -province "NE" \
+   -country "US"
+   -debug
    ```
-5. View the properties of the new signed (server) certificate.
+   
+5. Shell into the SSCEP client container to test 3 different SCEP servers (2 local and 1 remote)
+
+   Note that the SSCEP client requires each SCEP negotiation to happen separately. It starts with a 'getca' command to get the SCEP server's CA cert. The 'mkrequest' command generates the local private key, initial self-signed certificate, and the CSR with the challenge password and SAN values embedded. The 'enroll' command issues the PKIOperation request passing in all of these files.
+   ```shell
+   docker exec -it sscepclient /bin/bash
+
+   ## Change to the /scep folder
+   cd /scep
+   
+   ## Test against the local OpenXPKI SCEP server
+   mkdir test_openxpki && cd test_openxpki
+   sscep getca -u http://10.10.0.11/scep -c ca.crt
+   mkrequest -dns www.f5labs.local SecretChallenge
+   sscep enroll -u http://10.10.0.11/scep -c ca.crt-0 -k local.key -r local.csr -l local.crt -E 3des -S sha256
+
+   ## Test against the local smallstep SCEP server
+   cd ..
+   mkdir test_smallstep && cd test_smallstep
+   sscep getca -u http://10.10.0.14:9001/scep/scepca -c ca.crt
+   mkrequest -dns www.f5labs.local secret
+   sscep enroll -u http://10.10.0.14:9001/scep/scepca -c ca.crt-0 -k local.key -r local.csr -l local.crt -E 3des -S sha256
+
+   ## Test against the remote SCEP server (interop.redwax.eu)
+   cd ..
+   mkdir test_redwax && cd test_redwax
+   sscep getca -u http://interop.redwax.eu/test/simple/scep -c ca.crt
+   mkrequest -dns www.f5labs.local challenge-password
+   sscep enroll -u http://interop.redwax.eu/test/simple/scep -c ca.crt-1 -k local.key -r local.csr -l local.crt -E 3des -S sha256
+   ```   
+
+7. View the properties of any of the new signed (server) certificates
    ```
    openssl x509 -noout -text -in client.pem
    ```
-6. Optionally, shut down the Docker Compose when you are done testing. This will reset all configuration data.
+   
+8. Optionally, shut down the Docker Compose when you are done testing. This will reset all configuration data.
    ```shell
    docker compose -f scep-aio-internal-compose.yaml down
    ```
@@ -83,14 +159,14 @@ Before doing anything the client needs a copy of the CA certificate. This certif
 ```GET ?operation=GetCACert```
 
 **The response**:
-- Content-Type: application/x-x509-ca-cert
+- Content-Type: application/x-x509-ca-cert (or application/x-x509-ca-ra-cert)
 - Data: [DER-formatted CA certificate]
 
   ```openssl x509 -noout -text -inform DER -in scep-ca-cert.crt```
 
 
 ### Fetch the CA's capabilities
-While not technically required, the client can also now make a request to get the SCEP server's capabilities.
+The client now makes a request to get the SCEP server's capabilities. This informs the client of both the supported operations and encryption types available. Notably, if 'POSTPKIOperation' is returned, the subsequent enrollment request should be a POST. Otherwise it's a GET request.
 
 ```GET ?operation=GetCACaps```
 
@@ -103,10 +179,14 @@ While not technically required, the client can also now make a request to get th
      ```
      Renewal
      SHA-1
+     SHA-224
      SHA-256
+     SHA-384
+     SHA-512
      AES
      DES3
      SCEPStandard
+     GetNextCACert
      POSTPKIOperation
      ```
      
@@ -114,7 +194,7 @@ While not technically required, the client can also now make a request to get th
 
 
 ### Request a certificate
-The client will now send its certificate request. It can either be in a POST request with Content-Type ```application/octet-stream```, or as a GET request with the value in a ```message``` query parameter, base64-encoded, and then URI-encoded. The raw data is in CMS (Cryptographic Message Syntax), as defined in RFC5652, which provides a way to digitally sign, digest, authenticate, or encrypt arbitrary message content.
+The client will now send its certificate request. It can either be in a POST request with Content-Type ```application/octet-stream```, or as a GET request with the value in a ```message``` query parameter, base64-encoded, and then URI-encoded. The raw data is in CMS (Cryptographic Message Syntax), as defined in RFC5652, which provides a way to digitally sign, digest, authenticate, or encrypt arbitrary message content. 
 
 ```POST ?operation=PKIOperation```
 
