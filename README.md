@@ -375,7 +375,7 @@ The client will now send its certificate request. It can either be in a POST req
             d7:9b:af:3c
   </details>
 
-  Also equally important is the eContentType (pkcs7-data) blob, which is another CMS encapsulation containing the certificate request. The CA certificate and key can be used to decrypt this second CMS object to expose the Certificate Signing Request (CSR) data. This will be a fairly standard CSR with an additional **challengePassword** attribute containing the SCEP server's challenge password.
+  Also equally important is the eContentType (pkcs7-data) blob, which is another CMS encapsulation containing the certificate request. The CA certificate and key can be used to decrypt this second CMS object to expose the Certificate Signing Request (CSR) data. This will be a fairly standard CSR with an additional **challengePassword** attribute containing the SCEP server's challenge password. Notably, encapsulation of the CSR is done by encrypting with the CA's public key, received in the GetCACert request. The CA can then use its private key to extract the CSR data.
 
   ```
   openssl cms -in scep-signing-req.cms -verify -inform DER -noverify | openssl cms -inform DER -decrypt -recip ca.pem -inkey ca.key | openssl req -inform DER -noout -text
