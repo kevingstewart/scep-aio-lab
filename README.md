@@ -532,6 +532,32 @@ Assuming the SCEP server can correctly validate the client's request, its subseq
 
     At this point, the client can move the new signed certificate into the proper location to handle TLS transactions.
 
+<br />
+
+----
+
+## Local Testing Environment
+A separate "local" testing environment is contained within this repository in the form of a Docker Compose file. This [all-in-one Docker Compose](https://github.com/kevingstewart/scep-aio-lab/blob/main/scep-aio-local-compose.yaml) creates the following services needed to build a SCEP testing lab for your local lab environment:
+
+- OpenXPKI SCEP server: listening on the container host IP and port 8000
+- MicroMDM SCEP server: listening on the container host IP and port 8001
+- Smallstep SCEP server: listening on the container host IP and port 8002
+
+The difference between this and the self-contained lab is that SCEP clients will be running somewhere else in the network. For example, to utilize each of the above SCEP services from local network use the following addresses and ports:
+
+```
+## OpenXPKI SCEP server
+http://[container-ip]:8000/scep
+
+## MicroMDM SCEP server
+http://[container-ip]:8001/scep
+
+## Smallstep SCEP server
+http://[container-ip]:8002/scep/scepca
+```
+
+
+
 
 
 
