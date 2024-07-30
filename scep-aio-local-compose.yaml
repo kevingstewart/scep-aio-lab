@@ -1,0 +1,199 @@
+version: '3'
+services:
+  openxpki_db:
+    container_name: openxpki_db
+    restart: always
+    image: mysql:5.5
+    networks:
+      internal:
+        ipv4_address: 10.10.0.12
+    environment:
+      - MYSQL_ROOT_PASSWORD=my-super-secret-password
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## start the db
+        /usr/local/bin/docker-entrypoint.sh mysqld
+
+
+  openxpki_web:
+    container_name: openxpki_web
+    restart: always
+    image: larskanis/openxpki
+    networks:
+      internal:
+        ipv4_address: 10.10.0.11
+    links:
+      - openxpki_db:mysql
+    ports: 
+      - 8000:80
+    environment:
+      - APP_DB_HOST=mysql
+      - APP_DB_PORT=3306
+      - APP_DB_NAME=openxpki
+      - APP_DB_USER=openxpki
+      - APP_DB_PASS=openxpki
+      - APP_DB_ROOT_PASS=my-super-secret-password
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## update scep config file to enable auto-approve
+        sed -i 's/value@: connector:scep.scep-server-1.connector.initial/value: 1/' /etc/openxpki/config.d/realm/ca-one/scep/scep-server-1.yaml
+        sed -i 's/args: .*//' /etc/openxpki/config.d/realm/ca-one/scep/scep-server-1.yaml
+        sed -i 's/expect: .*//' /etc/openxpki/config.d/realm/ca-one/scep/scep-server-1.yaml
+        sed -i 's/- Build//' /etc/openxpki/config.d/realm/ca-one/scep/scep-server-1.yaml
+        sed -i 's/- New//' /etc/openxpki/config.d/realm/ca-one/scep/scep-server-1.yaml
+
+        # start openxpki server
+        /docker-entrypoint.sh
+
+
+  micromdm_scepserver:
+    container_name: micromdm_scepserver
+    image: ubuntu:22.04
+    networks:
+      internal:
+        ipv4_address: 10.10.0.10
+    ports: 
+      - 8001:8080
+    volumes:
+      - ./:/scep/data
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## install updates and required packages
+        apt update
+        apt install wget unzip tcpdump -y
+
+        ## install scep server binary
+        wget https://github.com/micromdm/scep/releases/download/v2.2.0/scepserver-linux-amd64-v2.2.0.zip
+        unzip scepserver-linux-amd64-v2.2.0.zip
+        mv scepserver-linux-amd64 /usr/sbin/scepserver
+
+        ## make necessary folders
+        mkdir -p /scep/depot
+
+        ## generate new CA cert
+        /usr/sbin/scepserver ca -init -depot /scep/depot -key-password "foobar"
+
+        ## start scepserver on port 8080
+        /usr/sbin/scepserver -depot /scep/depot -port 8080 -challenge=secret -allowrenew 0 -sign-server-attrs -capass "foobar"
+
+
+  smallstep-scep:
+    container_name: smallstep-scep
+    image: smallstep/step-ca
+    networks:
+      internal:
+        ipv4_address: 10.10.0.14
+    ports: 
+      - 8002:9001
+    command:
+      - /bin/bash
+      - -c
+      - |
+        ## Generate password file
+        echo '{m2*F!fhAsY6sP&*=lLtYMIu)J_T6kVH█' > /home/step/password.txt
+
+        ## Import rootca key (f5labs.com)
+        cat > /home/step/rootca.key <<EOF
+        -----BEGIN RSA PRIVATE KEY-----
+        MIIEowIBAAKCAQEAuSFJGHLO3pHhFjBkIdnYO0MYtWkG+0YZp54ldzts41A5vUww
+        ZIVggf1CtL69YiCWrllnkHADNQFORFChFthC5m6uwwSmxI4UnJ1+HmS0+vYyofNg
+        uMt0W0lnDYTq5ZXrkBN5/yKiQX1rDUxYQaEbiCRsO4wkCD1Cz0ydZ+NAr6kkUfIn
+        NMQwvl3K1+cYtDxvgb/IEvVS8NhBYPc37qmfRq3Iuf+D84Enj4vXty+0scXiWfxG
+        zUlCk26twyIEb7jGaLR/XZsmU8bwGMjrizs1KzVccz94LydpApMHFreDW243/Xge
+        knBIv0lDSk1S69TRmA4Dd4JZhLzLgxh6DM3IowIDAQABAoIBAAVaYAmz8CVhZHfG
+        yG5uJSF5jDJaqhgD6+P736t17W0ZOcIufMu7S5IWp6IgTcuTk6fQ7/yuMHmM4x14
+        k1/cuvp8wtLixIu0bAYnS6lHUjBbhBVIu0g8oc2t7qvmZwBieGA/H+zvrG9mV/0X
+        cwnaxbgHDZYfND+EvfTOi1KgsJMjrUWszc51RVQ90wKXdaBhqywLA2/GumJg4EFi
+        lodw2J/Wbr+dGfquf8rdsLA1nwwPPMkYMJ2AHLEKEumkelUePiepYqvXOtsJqigI
+        4LdCaKDQJjzyeMBqbjv4dejbb6IjHz4eeYFV9QjYpzvyom4G6K96nIK7OoXspUwL
+        Zd6J3NECgYEA7OcLidHbBx+WwWbomdTFFXquJQxe/hzESZN+w1Tt73dOvqj36G3J
+        sqfC9/LtUfPkcLtersoiTAyhM7GQoVS4vsfzIzXjZltq0xDWXWDo42Sz7dD3NooU
+        /Xo0NiqTHoONPLNDQdqwS2PAVZCXvsc7VJ9MLUbbplFTimPaO4NoJTkCgYEAyA3P
+        2q7Sfu3rv31b8zV67KRKlLv+d0M5TY0NeVMqDGQZqGN00S7sNrauUjQS7wK9QpAH
+        aQrBE9I3QrgVgsWLReseQi/WL8pbrpDtL3JxrRFgdnTLm1yAs+NUKPWv4MfV/ODf
+        ZkR0JyCtQfEdaeegjUP2qMCx4Ndj9LOdoZFnWLsCgYBjmSuHsNvV3dkCzKIj8ok9
+        Y4uNdesGCNAZYtJbivxRviY0EFPRuz6eRtu4ZMCTwOcc4hmHgOH0eSbY1eFJgpX9
+        V5EID6LgKLT7sct+DL08xNzEsiMNIfZ7LwJ+d13M6V/a0j8Hk8qkl3aIQrcZdSej
+        hyl+q5izDuQBfcOFW9TQOQKBgQDFqF/lwTVZE9oJqOJgukZp6SmHKveQ/mpvpR3a
+        8cBp3b08Eogo5iOdK4Gw1qKeZCZ6zbOEpYt++gR/d0JJosSooFWVL46ASX+sSqUO
+        bBTE2pZkc6F4Lz06fzF4BsdvYAKdh9EyShA5WJ/Wt1RIfwKykKP0t+8IJ8gqzgzA
+        xdlGYQKBgDY9qObGV+3RXMZLUuyurZoiRCvrSpUwz84LxMBX9GO+p+RKZ2JFR7Uv
+        /dAejO3FWHBCYbblpM57/LfFzByISqOlDlEOUMO6zMKMa+libHrPsOJ4/b6n6PaR
+        yq2Hh8HxRgiLu6lybMPfN1VH6/3Fg82nKtiPBN4Xt22/XWiHtBbf
+        -----END RSA PRIVATE KEY-----
+        EOF
+
+        ## Import rootca cert (f5labs.com)
+        cat > /home/step/rootca.crt <<EOF
+        -----BEGIN CERTIFICATE-----
+        MIIDoTCCAomgAwIBAgIJAL859gCV8N/6MA0GCSqGSIb3DQEBCwUAMFcxCzAJBgNV
+        BAYTAlVTMRMwEQYDVQQKEwpmNWxhYnMuY29tMR4wHAYDVQQLExVDZXJ0aWZpY2F0
+        ZSBBdXRob3JpdHkxEzARBgNVBAMTCmY1bGFicy5jb20wHhcNMTkwMjI3MTA0NjAw
+        WhcNMzAwNTE2MTA0NjAwWjBXMQswCQYDVQQGEwJVUzETMBEGA1UEChMKZjVsYWJz
+        LmNvbTEeMBwGA1UECxMVQ2VydGlmaWNhdGUgQXV0aG9yaXR5MRMwEQYDVQQDEwpm
+        NWxhYnMuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuSFJGHLO
+        3pHhFjBkIdnYO0MYtWkG+0YZp54ldzts41A5vUwwZIVggf1CtL69YiCWrllnkHAD
+        NQFORFChFthC5m6uwwSmxI4UnJ1+HmS0+vYyofNguMt0W0lnDYTq5ZXrkBN5/yKi
+        QX1rDUxYQaEbiCRsO4wkCD1Cz0ydZ+NAr6kkUfInNMQwvl3K1+cYtDxvgb/IEvVS
+        8NhBYPc37qmfRq3Iuf+D84Enj4vXty+0scXiWfxGzUlCk26twyIEb7jGaLR/XZsm
+        U8bwGMjrizs1KzVccz94LydpApMHFreDW243/XgeknBIv0lDSk1S69TRmA4Dd4JZ
+        hLzLgxh6DM3IowIDAQABo3AwbjAvBglghkgBhvhCAQ0EIhYgT3BlblNTTCBnZW5l
+        cmF0ZWQgQ0EgY2VydGlmaWNhdGUwHQYDVR0OBBYEFEoQGb5szH9/+K832NzHSZ1b
+        JtC+MA8GA1UdEwEB/wQFMAMBAf8wCwYDVR0PBAQDAgGGMA0GCSqGSIb3DQEBCwUA
+        A4IBAQCBGj/nKgjS4JjKt6GvPbVEiTBwv2WBejJ97ozCMkdWCmMEESJ9lkVruIOI
+        BbfXxOXHSxhXPrQXQjCy0zPXG1beZSHhk1mKUoWK+JqMyxoNAQkDfLsdd34TApHW
+        kIItc4nxmGM4RoKWxqzAxsYr0e0fvHwiPoqvebNrVtxcdm7Zltng3l2O6uM/DiT/
+        IUa9IcD0LNAxOA0qF1GTJkglbjwRHEpNSfO0qg5WEfUEOHLi2M0aB3v7lZXmU6q4
+        Gt5YRbIFCDf25i+I4yqXWER5iyZgee7WNyiz3UJpasx5eZRqtK/FGFK9hKK9/35H
+        BrdlmzkznKUvswZmcvR7nXbxI5qv
+        -----END CERTIFICATE-----
+        EOF
+
+        ## Trigger step ca init
+        /usr/local/bin/step ca init \
+        --name=Smallstep \
+        --dns=localhost \
+        --deployment-type=standalone \
+        --address=:9000 \
+        --provisioner-password-file=/home/step/password.txt \
+        --password-file=/home/step/password.txt \
+        --provisioner=prov \
+        --root=/home/step/rootca.crt \
+        --key=/home/step/rootca.key
+       
+        ## Overwrite minted ECDSA intermediate cert/key with RSA cert/key
+        /usr/local/bin/step certificate create subca.f5labs.com \
+        /home/step/certs/intermediate_ca.crt \
+        /home/step/secrets/intermediate_ca_key \
+        --kty RSA \
+        --profile intermediate-ca \
+        --ca /home/step/certs/root_ca.crt \
+        --ca-key /home/step/rootca.key \
+        --no-password --insecure -f
+
+        ## Pause for 5 seconds
+        sleep 5
+
+        ## add scep provisioner
+        /usr/local/bin/step ca provisioner add scepca --type SCEP --challenge "secret" --encryption-algorithm-identifier 2 --include-root --force-cn
+
+        ## Start step-ca server
+        sed -i 's/"insecureAddress": "",/"insecureAddress": ":9001",/' /home/step/config/ca.json
+        /usr/local/bin/step-ca --password-file /home/step/password.txt /home/step/config/ca.json
+
+
+
+networks:
+  default:
+    driver: bridge
+  internal:
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.10.0.0/16
