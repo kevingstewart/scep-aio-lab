@@ -162,7 +162,9 @@ Before doing anything the client needs a copy of the CA certificate. This certif
 - Content-Type: application/x-x509-ca-cert (or application/x-x509-ca-ra-cert)
 - Data: [DER-formatted CA certificate]
 
-  ```openssl x509 -noout -text -inform DER -in scep-ca-cert.crt```
+  ```shell
+  openssl x509 -noout -text -inform DER -in scep-ca-cert.crt
+  ```
 
 
 ### Fetch the CA's capabilities
@@ -201,7 +203,9 @@ The client will now send its certificate request. It can either be in a POST req
 **The request**:
 - The client must possess or create a private key. From that key the client will now also generate a temporary self-signed certificate containing a public key. This self-signed certificate allows the SCEP server to authenticate the data that been transferred. The view this raw CMS data:
 
-   ```openssl cms -cmsout -inform DER -print -in scep-signing-req.cms```
+   ```shell
+   openssl cms -cmsout -inform DER -print -in scep-signing-req.cms
+   ```
    
    <details>
       <summary>Example request CMS data</summary>
@@ -308,7 +312,7 @@ The client will now send its certificate request. It can either be in a POST req
 
    There are multiple layers of data in this object. Most important, the self-signed certificate is in the *certificates* block. To extract and view this self-signed certificate:
 
-   ```
+   ```shell
    openssl cms -verify -in scep-signing-req.cms -inform DER -signer self_signed.cer -noverify -out /dev/null
    openssl x509 -in self_signed.cer -noout -text
    ```
@@ -377,7 +381,7 @@ The client will now send its certificate request. It can either be in a POST req
 
   Also equally important is the eContentType (pkcs7-data) blob, which is another CMS encapsulation containing the certificate request. The CA certificate and key can be used to decrypt this second CMS object to expose the Certificate Signing Request (CSR) data. This will be a fairly standard CSR with an additional **challengePassword** attribute containing the SCEP server's challenge password. Notably, encapsulation of the CSR is done by encrypting with the CA's public key, received in the GetCACert request. The CA can then use its private key to extract the CSR data.
 
-  ```
+  ```shell
   openssl cms -in scep-signing-req.cms -verify -inform DER -noverify | openssl cms -inform DER -decrypt -recip ca.pem -inkey ca.key | openssl req -inform DER -noout -text
   ```
 
@@ -444,10 +448,10 @@ Assuming the SCEP server can correctly validate the client's request, its subseq
 
     The signed certificate can be extracted from this CMS data by decrypting with the self-signed certificate and the original private key
 
-    ```
+    ```shell
     openssl cms -verify -in scep-signed-resp.cms -inform DER -noverify | openssl cms -decrypt -inform der -recip self_signed.cer -inkey client.key | openssl pkcs7 -inform der -noout -print_certs -text
     ```
-
+    
     <details>
        <summary>Example signed certificate</summary>
 
@@ -556,6 +560,31 @@ http://[container-ip]:8001/scep
 http://[container-ip]:8002/scep/scepca
 ```
 
+<br />
+
+----
+
+## Testing with Windows Network Device Enrollment Services (NDES)
+The Network Device Enrollment Service (NDES) is one of the role services of Active Directory Certificate Services (AD CS). NDES acts as a Registration Authority to enable the software on routers and other network devices running without domain credentials to get certificates based on the Simple Certificate Enrollment Protocol (SCEP). Configuring NDES is beyond the scope of this project, but below are a few references for installation/configuration:
+
+- https://learn.microsoft.com/en-us/windows-server/identity/ad-cs/network-device-enrollment-service-overview
+- https://www.petenetlive.com/KB/Article/0000947
+- https://forums.ivanti.com/s/article/How-to-Setup-SCEP-integration?language=en_US
+- https://www.ibm.com/docs/en/maas360?topic=integration-configuring-certificate-template-scep-server
+- https://docs.omnissa.com/bundle/CertificateAuthorityIntegrations/page/NDESforSCEP.html
+
+Once NDES is installed and configured, the (Certnanny) SSCEP client provided in the Docker Compose can be used to request certificates. The (MicroMDM) SCEP client cannot work for Windows NDES as NDES uses different CA certificates for signature and encryption, which is not possible to configure with the SCEP client.
+
+```shell
+docker compose -f scep-aio-internal-compose.yaml up -d
+
+docker exec -it sscepclient /bin/bash
+mkdir test && cd test
+
+sscep getca -u http://[windows-ndes-server]/certsrv/mscep/mscep.dll/pkiclient.exe -c ca.crt
+mkrequest -dns www.f5labs.local [NDES enrollment challenge password]
+sscep enroll -u http://[windows-ndes-server]/certsrv/mscep/mscep.dll/pkiclient.exe -c ca.crt-0 -k local.key -r local.csr -l local.crt -E 3des -S sha256 -e ca.crt-1 -dv
+```
 
 
 
